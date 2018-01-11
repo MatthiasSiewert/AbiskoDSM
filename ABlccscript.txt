@@ -1,0 +1,158 @@
+#################
+## Classification for Abisko
+###############
+# Author Matthias Siewert
+# March 2016
+
+########################################
+# This script generates a Land cover classification using an object based approach.
+# The classification result is of very high resolution at 1m with a minimum patch size of 130m2
+########################
+
+
+
+##############
+### START  ###
+##############
+
+cd Abisko/GIS_RS_data/DSM/
+
+##### Step 1: merge The Illuminationcorrected OrthoPhoto with the Dem at 1m scale
+gdal_merge.py -separate Raster/ABsdDEM2m.tif Raster/ABorthoIlluCor.tif -o temp/ABlccCompo.tif -v -ps 1 1
+
+
+###########################################################good
+#Segmentation workflow
+# make it smooth
+otbcli_MeanShiftSmoothing -in temp/ABlccCompo.tif -fout temp/LCC/ABorthoSDsegfil.tif -foutpos temp/LCC/ABorthoSDsegfilspat.tif -spatialr 5 -ranger 13 -thres 0.1 -maxiter 100 -modesearch 0
+#devide into segments
+otbcli_LSMSSegmentation -in temp/LCC/ABorthoSDsegfil.tif -inpos tempSegTemp//ABorthoSDsegfilspat.tif -out temp/LCC/Segmentation.tif uint32 -spatialr 5 -ranger 13 -minsize 0 
+
+#merge too small segments
+otbcli_LSMSSmallRegionsMerging -in temp/LCC/ABorthoSDsegfil.tif -inseg temp/LCC/Segmentation.tif -out temp/LCC/Segmentation_merged.tif uint32 -minsize 130
+
+#make a segemented vector file use original image
+#otbcli_LSMSVectorization -in temp/ABlccCompo.tif -inseg temp/LCC/Segmentation_merged.tif -out temp/LCC/ABdem_orthoIlluCor_seg.shp 
+
+######################################################################
+#make a new composite with the tagret input layers for the classifcation; make sure to have same pixelsize as above:
+#gdal_merge.py -separate temp/ABlccCompo.tif temp/ABspot5IlluCorr.tiff -o temp/LCC/ABlccCompo_inputlayers.tif
+
+gdal_merge.py -separate temp/ABlccCompo.tif temp/ABspot5IlluCorr.tiff temp/ABspotndvi.tif temp/ABspotsavi.tif temp/AB_NIRSWIR.tif temp/DEMderivs/ABslope2m.tif -o temp/LCC/ABlccCompo_inputlayers.tif
+
+#now segment this image instead
+otbcli_LSMSVectorization -in temp/LCC/ABlccCompo_inputlayers.tif -inseg temp/LCC/Segmentation_merged.tif -out temp/LCC/ABsegmnAlllayers130.shp
+
+#copy the file to avaoid overwrite
+ogr2ogr -a_srs EPSG:3006 temp/LCC/ABsegm.shp temp/LCC/ABsegmnAlllayers130.shp
+
+#######################################
+#Classification workflow
+
+#Use QGIS Join attributes by location tool to koin the segments with the training files.
+#Call the resulting file: 
+temp/LCC/ABsegm_trained.shp
+
+# Calculate statistics for both the training set and for the segmentation results
+otbcli_ComputeOGRLayersFeaturesStatistics -inshp temp/LCC/ABsegm_trained.shp -outstats temp/LCC/segmentation_merged_train.xml -feat meanB0 meanB1 meanB2 meanB3 meanB4 meanB5 meanB6 meanB7 meanB8 meanB9 meanB10 meanB11
+
+otbcli_ComputeOGRLayersFeaturesStatistics -inshp temp/LCC/ABsegm.shp -outstats temp/LCC/segmentation_merged.xml -feat meanB0 meanB1 meanB2 meanB3 meanB4 meanB5 meanB6 meanB7 meanB8 meanB9 meanB10 meanB11
+
+# now train the classifier
+otbcli_TrainOGRLayersClassifier -inshp temp/LCC/ABsegm_trained.shp -instats temp/LCC/segmentation_merged_train.xml -outsvm temp/LCC/svmModel.svm -feat meanB0 meanB1 meanB2 meanB3 meanB4 meanB5 meanB6 meanB7 meanB8 meanB9 meanB10 meanB11 -cfield TrainInt
+
+otbcli_OGRLayerClassifier -inshp temp/LCC/ABsegm.shp -instats temp/LCC/segmentation_merged_train.xml -insvm temp/LCC/svmModel.svm -feat meanB0 meanB1 meanB2 meanB3 meanB4 meanB5 meanB6 meanB7 meanB8 meanB9 meanB10 meanB11 -cfield predicted9
+
+
+
+###############################
+######    Water mask       ####
+###############################
+
+
+#copy the file to avaoid overwrite
+ogr2ogr temp/LCC/ABwater.shp temp/LCC/ABsegmnAlllayers130.shp
+
+#######################################
+#Classification workflow
+
+#Use QGIS Join attributes by location tool to koin the segments with the training files.
+#Call the resulting file: 
+temp/LCC/ABwater_trained.shp
+
+# Calculate statistics for both the training set and for the segmentation results
+otbcli_ComputeOGRLayersFeaturesStatistics -inshp temp/LCC/ABwater_trained.shp -outstats temp/LCC/segmentation_merged_train.xml -feat meanB1 meanB11
+
+otbcli_ComputeOGRLayersFeaturesStatistics -inshp temp/LCC/ABwater.shp -outstats temp/LCC/segmentation_merged.xml -feat meanB1 meanB11
+
+# now train the classifier
+otbcli_TrainOGRLayersClassifier -inshp temp/LCC/ABwater_trained.shp -instats temp/LCC/segmentation_merged_train.xml -outsvm temp/LCC/svmModel.svm -feat meanB1 meanB11 -cfield TrainInt
+
+otbcli_OGRLayerClassifier -inshp temp/LCC/ABwater.shp -instats temp/LCC/segmentation_merged_train.xml -insvm temp/LCC/svmModel.svm -feat meanB1 meanB11 -cfield predicted
+
+#########
+# Dissolve:
+### doesn*t work for some reason! # use Saga instead
+ogr2ogr Water/ABwatermaskDis.shp Water/ABwatermaskAdj.shp -dialect sqlite -sql "SELECT ST_Union(Geometry), predicted FROM ABwatermaskAdj GROUP BY predicted"
+
+gdal_rasterize -a predicted -tr 1.0 1.0 -l ABwatermaskAdj Water/ABwatermaskAdj.shp Water/ABwatermaskDis.tif
+
+gdal_polygonize.py Water/ABwatermaskDis.tif -f "ESRI Shapefile" Water/ABwatermaskDisTif.shp WaterMask
+
+###############################
+######    Water mask END   ####
+###############################
+
+
+###############################
+######    Final processing   ####
+###############################
+
+# Rasterize the the final lcc result and do all merging and clipping with the raster.
+# If you need the LCC as a vector, then vectorize it in the end. 
+
+gdalwarp out/M2m.tif DSM/temp/DEMderivs/ABDEM2mb.tif -tr 2 2 -s_srs EPSG:3006
+
+### Dissolve :
+### Use SagaGIS for dissolve, goes much much faster!
+
+v.db.update map=ABlccAnthOR@ABlss layer=1 column=Class query_column=b_cat+a_Class where="CASE WHEN b_cat > 0 THEN 15 ELSE a_Class end"
+
+# the following did not work in cmd but worked in qgis directly
+saga_cmd shapes_polygons 5 -POLYGONS temp/LCC/ABLCCfinal.shp -FIELD_1 Class -DISSOLVED temp/LCC/ABlcc.shp
+
+###############################
+######    Done   ####
+###############################
+
+
+transfer to multipart first
+
+
+#Union of the anthor layer#
+# seems to have worked
+saga_cmd shapes_polygons 17 -A temp/LCC/ABfinallccsagadis.shp -B Vector/ABanthro.shp -RESULT temp/LCC/ABlccSagaDisAnthSPLIT 1.shp -SPLIT 1
+#Union of the anthor layer#
+saga_cmd shapes_polygons 17 -A temp/LCC/ABfinallccsagadis.shp -B Vector/ABanthro.shp -RESULT temp/LCC/ABlccSagaDisAnthSplit0.shp -SPLIT 0
+
+# Dissolve again
+saga_cmd shapes_polygons 5 -POLYGONS temp/LCC/ABlccSagaDisAnth.shp -FIELD_1 ClassFinal -DISSOLVED temp/LCC/ABlccSagaDisAnthDis.shp
+
+#Module Polygon multi Parts to Separate Polygons
+saga_cmd shapes_polygons 10 -POLYGONS temp/LCC/ABlccSagaDisAnth.shp -PARTS temp/LCC/ABlccSagaDisAnthMP.shp
+
+
+
+Copied label by hand from ABLCCfinal.shp
+
+
+# clean the file using self-intersect
+saga_cmd shapes_polygons 12 -POLYGONS temp/LCC/ABfinallccsagadis.shp -ID Class -INTERSECT temp/LCC/ABfinallccsagadisClean.shp
+
+# Then dissolve
+saga_cmd shapes_polygons 5 -POLYGONS temp/LCC/ABlccSagaDisAnthDisInter.shp -FIELD_1 ClassFinal -DISSOLVED temp/LCC/ABlccSagaDisAnthInterDis.shp
+
+
+
+
+
