@@ -44,13 +44,46 @@
 # The uploaded dataset is a degraded version at 30m resolution using gdal. 
 ABcomposite <- stack("ABcomposite30x30f.gri")
 
+#################################################
+### Extract sampling points
+
+# #read points
+# ABpoints <- readOGR(dsn="/home/masi/Data/Abisko/GIS_RS_data/GPS/ABsitesSWEREF.shp", layer="ABsitesSWEREF")
+# names(ABpoints)# read columns
+# 
+# # transform into data.frame
+# ABpointsDF <- as.data.frame(ABpoints)
+# 
+# 
+# # Extract values from environmental data sets
+# ABpointsDF <- cbind(ABpointsDF,extract(ABcomposite, ABpoints))#, buffer = 4)) ## buffer didnt work for some reasion
+# # merge in the SOC data 
+# temp <- data.frame(pedon     = AB4pedon$pedon,
+#                    ped_type  = AB4pedon$ped_type,
+#                    OLdepth   = AB4pedon$OLdepth,
+#                    SOCOL     = AB4pedon$SOCOL,
+#                    SOCPF     = AB4pedon$SOCPF,
+#                    SOC0to30  = AB4pedon$SOC0to30,
+#                    SOC0to100 = AB4pedon$SOC0to100,
+#                    SOCTot    = AB4pedon$SOCTot)
+# ABpointsDF <- merge(ABpointsDF, temp, by.x="Pedon",by.y="pedon", all=F)
+# 
+# # remove all points without SOC data 
+# ABpointsDF <- subset(ABpointsDF, !is.na(ABpointsDF$SOC0to100))
+# # if there is no value for OL, the set 0
+# ABpointsDF$SOCOL<- ifelse(is.na(ABpointsDF$SOCOL),0,ABpointsDF$SOCOL)
+# # remove all points outside area
+# ABpointsDF <- subset(ABpointsDF, !is.na(ABpointsDF$Orthophoto.Red))
+# 
+# write.csv(ABpointsDF , file = "ABpointsDF.csv")
+
+ABpointsDF <- read.csv(file='ABpointsDF.csv')
+ABpointsDF$X <- NULL
 
 ###################################################################
 ## Prediction
 #################################################################
 
-ABpointsDF <- read.csv(file='ABpointsDF.csv')
-ABpointsDF$X <- NULL
 ######################################
 # Compare different prediction models
 
