@@ -7,12 +7,10 @@
 # 
 
 # ######### GIS libraries
-# library(maptools)# autoloads sp
  library(rgdal)
  library(sp)
  library(raster)
-# #library(Hmisc)
-# #library(mice)
+
  library(rgeos)
 # 
  library(RColorBrewer)
@@ -23,14 +21,6 @@
  require(caret) #neural network optimization
  library(snow) #for multicore usage
  library(doMC) #for multicore usage in caret
-# 
- # library(randomForest)
- # library(e1071) #svm
- # library(nnet) #neural network
-
-# #library(pls)
-# library(ithir) # Digital soil mapping #install.packages("ithir", repos="http://R-Forge.R-project.org")
-# library(MASS)
 
 #options(scipen=999) #prevents scientific number formatting
 #options(digits=5) #show only two digits
